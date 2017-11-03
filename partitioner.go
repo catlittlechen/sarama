@@ -133,3 +133,33 @@ func (p *hashPartitioner) Partition(message *ProducerMessage, numPartitions int3
 func (p *hashPartitioner) RequiresConsistency() bool {
 	return true
 }
+
+type OfficialPartitioner struct {
+	random Partitioner
+}
+
+// NewOfficialPartitioner returns a Partitioner which behaves as follows. If the message's key is nil then a
+// random partition is chosen. Otherwise the kafka official hash of the encoded bytes of the message key is used,
+// modulus the number of partitions. This ensures that messages with the same key always end up on the
+// same partition.
+func NewOfficialPartitioner(topic string) Partitioner {
+	p := new(OfficialPartitioner)
+	p.random = NewRandomPartitioner(topic)
+	return p
+}
+
+func (p *OfficialPartitioner) Partition(message *ProducerMessage, numPartitions int32) (int32, error) {
+	if message.Key == nil {
+		return p.random.Partition(message, numPartitions)
+	}
+	bytes, err := message.Key.Encode()
+	if err != nil {
+		return -1, err
+	}
+	partition := int32(toPositive(MurmurHash2(bytes)) % uint32(numPartitions))
+	return partition, nil
+}
+
+func (p *OfficialPartitioner) RequiresConsistency() bool {
+	return true
+}
